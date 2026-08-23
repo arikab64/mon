@@ -8,6 +8,7 @@
 
 #define PROC_MAX_ENTRIES  32768
 #define MAX_PATH_LEN      1024
+#define MAX_CMDLINE_LEN   1024
 
 
 typedef enum proc_entry_flags {
@@ -18,6 +19,8 @@ typedef enum proc_entry_flags {
     PE_CWD_MISSING      = 1u << 4,  // task->fs was NULL
     PE_INHERITED        = 1u << 5,  // entry copied from parent (fork)
     PE_DISCOVERED       = 1u << 6,  // built at fork from the child task (parent unkown)
+    PE_CMDLINE_TRUNC    = 1u << 7,
+    PE_CMDLINE_MISSING  = 1u << 8,  // mm was NULL or arg range unreadable
 } proc_entry_flags_e;
 
 
@@ -25,9 +28,11 @@ typedef struct proc_entry {
     u32 pid;
     u32 ppid;
     u32 flags;
+    u32 cmdline_len;                // valid bytes in cmdline
     char comm[TASK_COMM_LEN];
     char exe[MAX_PATH_LEN];
     char cwd[MAX_PATH_LEN];
+    char cmdline[MAX_CMDLINE_LEN];  // argv blob, NUL-separated as in /proc/pid/cmdline
 } proc_entry_t;
 
 

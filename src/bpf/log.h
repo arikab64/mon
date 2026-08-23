@@ -27,6 +27,10 @@ static __always_inline const char *___mon_log_func(const char *fn)
     return fn;
 }
 
+// For guarding work only needed when a level is live, e.g.
+// if (log_enabled(DEBUG)). Dead-code-eliminated like the log calls.
+#define log_enabled(lvl) (MON_LOG_##lvl >= mon_log_level)
+
 #define mon_log(lvl, tag, fmt, ...)                                     \
     do {                                                                \
         if ((lvl) >= mon_log_level)                                     \

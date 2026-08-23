@@ -175,12 +175,42 @@ static __always_inline void fill_cwd(struct scratch *s, struct task_struct *task
 	}
 }
 
+// Reads the argv blob current has mapped at task->mm->arg_start (the same
+// range /proc/pid/cmdline exposes). Only valid when task shares current's
+// view of that range: at exec (task == current) and at fork (child is a
+// fresh copy of current, the parent).
+static __always_inline void fill_cmdline(struct task_struct *task, proc_entry_t *e)
+{
+    u64 arg_start = BPF_CORE_READ(task, mm, arg_start);
+    u64 arg_end = BPF_CORE_READ(task, mm, arg_end);
+
+    e->cmdline_len = 0;
+    if (!arg_start || arg_end <= arg_start) {
+        e->flags |= PE_CMDLINE_MISSING;
+        return;
+    }
+
+    u64 len = arg_end - arg_start;
+    if (len > MAX_CMDLINE_LEN) {
+        len = MAX_CMDLINE_LEN;
+        e->flags |= PE_CMDLINE_TRUNC;
+    }
+
+    if (bpf_probe_read_user(e->cmdline, len, (const void *)arg_start) != 0) {
+        e->flags |= PE_CMDLINE_MISSING;
+        return;
+    }
+    e->cmdline[MAX_CMDLINE_LEN - 1] = '\0';
+    e->cmdline_len = len;
+}
+
 static __always_inline void build_entry(struct task_struct *task, struct scratch *s)
 {
     proc_entry_t *entry = &s->entry;
     fill_identiry(task, entry);
     fill_exe(s, task, entry);
     fill_cwd(s, task, entry);
+    fill_cmdline(task, entry);
 }
 
 SEC("tp_btf/sched_process_exec")
@@ -196,8 +226,16 @@ int BPF_PROG(mon_proc_exec, struct task_struct *task, pid_t old_pid,
     bpf_map_update_elem(&procs_map, &s->entry.pid, &s->entry, BPF_ANY);
 
     proc_entry_t *pe = &s->entry;
-    log_debug("add procs: pid=%d, ppid=%d, comm=%s, exe=%s, cwd=%s", 
-            pe->pid, pe->ppid, pe->comm, pe->exe, pe->cwd);
+    // The map holds its own copy by now, so the scratch cmdline can be
+    // flattened (NUL separators -> spaces) for the log line.
+    if (log_enabled(DEBUG)) {
+        u32 n = pe->cmdline_len;
+        for (u32 i = 0; i < MAX_CMDLINE_LEN - 1 && i + 1 < n; i++)
+            if (pe->cmdline[i] == '\0')
+                pe->cmdline[i] = ' ';
+    }
+    log_debug("add procs: pid=%d, ppid=%d, comm=%s, exe=%s, cwd=%s, cmdline=%s",
+            pe->pid, pe->ppid, pe->comm, pe->exe, pe->cwd, pe->cmdline);
 
     return 0;
 }
