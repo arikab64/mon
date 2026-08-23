@@ -1,0 +1,4 @@
+build
+.claude/
+src/mon/target/
+*.log
